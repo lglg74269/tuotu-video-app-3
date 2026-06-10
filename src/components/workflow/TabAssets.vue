@@ -254,7 +254,10 @@ async function doReAnalyze(overwrite) {
                 <span class="label">装扮:</span> {{ c.c || '暂无装扮描述' }}
               </div>
               <div class="looks-count" v-if="c.looks?.length">
-                <span class="label">包含造型:</span> <el-tag size="small" class="ml4" v-for="l in c.looks" :key="l.ln">{{ l.ln }}</el-tag>
+                <span class="label">包含造型:</span> 
+                <el-tag size="small" class="ml4 mb4" v-for="l in c.looks" :key="l.ln" style="margin-bottom: 4px;">
+                  {{ l.ln }}<span v-if="l.looks_appear_episodes?.length" style="color: #909399;"> (出场: {{ displayEps(l.looks_appear_episodes) }})</span>
+                </el-tag>
               </div>
               <div class="eps-section" v-if="c.eps?.length">
                 <span class="label">出场集数:</span> {{ displayEps(c.eps) }}
@@ -289,7 +292,10 @@ async function doReAnalyze(overwrite) {
                 <span class="label">场景描述:</span> {{ s.d || '暂无场景描述' }}
               </div>
               <div class="looks-count" v-if="s.states?.length">
-                <span class="label">包含状态:</span> <el-tag size="small" class="ml4" v-for="st in s.states" :key="st.sn">{{ st.sn }}</el-tag>
+                <span class="label">包含状态:</span> 
+                <el-tag size="small" class="ml4 mb4" v-for="st in s.states" :key="st.sn" style="margin-bottom: 4px;">
+                  {{ st.sn }}<span v-if="st.states_appear_episodes?.length" style="color: #909399;"> (出场: {{ displayEps(st.states_appear_episodes) }})</span>
+                </el-tag>
               </div>
               <div class="eps-section" v-if="s.eps?.length">
                 <span class="label">出场集数:</span> {{ displayEps(s.eps) }}
@@ -324,7 +330,10 @@ async function doReAnalyze(overwrite) {
                 <span class="label">物品描述:</span> {{ i.d || '暂无物品描述' }}
               </div>
               <div class="looks-count" v-if="i.variants?.length">
-                <span class="label">包含形态:</span> <el-tag size="small" class="ml4" v-for="v in i.variants" :key="v.vn">{{ v.vn }}</el-tag>
+                <span class="label">包含形态:</span> 
+                <el-tag size="small" class="ml4 mb4" v-for="v in i.variants" :key="v.vn" style="margin-bottom: 4px;">
+                  {{ v.vn }}<span v-if="v.variants_appear_episodes?.length" style="color: #909399;"> (出场: {{ displayEps(v.variants_appear_episodes) }})</span>
+                </el-tag>
               </div>
               <div class="eps-section" v-if="i.eps?.length">
                 <span class="label">出场集数:</span> {{ displayEps(i.eps) }}
@@ -383,7 +392,10 @@ async function doReAnalyze(overwrite) {
             </div>
             <div class="sub-item-card" v-for="(look, idx) in editingEntity.looks" :key="idx">
               <div class="sub-item-header">
-                <span>造型 #{{ idx + 1 }}</span>
+                <div>
+                  <span>造型 #{{ idx + 1 }}</span>
+                  <span v-if="look.looks_appear_episodes?.length" style="margin-left: 8px; font-size: 12px; color: #909399; font-weight: normal;">(出场集数: {{ displayEps(look.looks_appear_episodes) }})</span>
+                </div>
                 <el-button type="danger" size="small" circle icon="Delete" @click="removeSubItem(idx)" />
               </div>
               <el-input v-model="look.ln" placeholder="造型名" class="mb8" />
@@ -405,7 +417,10 @@ async function doReAnalyze(overwrite) {
             </div>
             <div class="sub-item-card" v-for="(state, idx) in editingEntity.states" :key="idx">
               <div class="sub-item-header">
-                <span>状态 #{{ idx + 1 }}</span>
+                <div>
+                  <span>状态 #{{ idx + 1 }}</span>
+                  <span v-if="state.states_appear_episodes?.length" style="margin-left: 8px; font-size: 12px; color: #909399; font-weight: normal;">(出场集数: {{ displayEps(state.states_appear_episodes) }})</span>
+                </div>
                 <el-button type="danger" size="small" circle icon="Delete" @click="removeSubItem(idx)" />
               </div>
               <el-input v-model="state.sn" placeholder="状态名称" class="mb8" />
@@ -427,7 +442,10 @@ async function doReAnalyze(overwrite) {
             </div>
             <div class="sub-item-card" v-for="(v, idx) in editingEntity.variants" :key="idx">
               <div class="sub-item-header">
-                <span>形态 #{{ idx + 1 }}</span>
+                <div>
+                  <span>形态 #{{ idx + 1 }}</span>
+                  <span v-if="v.variants_appear_episodes?.length" style="margin-left: 8px; font-size: 12px; color: #909399; font-weight: normal;">(出场集数: {{ displayEps(v.variants_appear_episodes) }})</span>
+                </div>
                 <el-button type="danger" size="small" circle icon="Delete" @click="removeSubItem(idx)" />
               </div>
               <el-input v-model="v.vn" placeholder="形态名称" class="mb8" />
