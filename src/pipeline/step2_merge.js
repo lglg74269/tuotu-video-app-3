@@ -124,6 +124,43 @@ export function mergeNamesResult(base, delta) {
   return lib;
 }
 
+/** 将已有资产在本集中的出现情况（无更新的造型/状态/形态）合并进主资产库 */
+export function mergeExistingAppearancesToAssets(assets, appearance, episodeIndices = []) {
+  if (!assets || !appearance || !episodeIndices.length) return;
+  const eps = episodeIndices.map(i => i + 1); // 统一转为 1 起索引
+
+  for (const c of appearance.characters || []) {
+    const exist = assets.characters?.find(x => x.n === c.name);
+    if (exist) {
+      exist.eps = mergeEps(exist.eps, eps);
+      for (const lName of c.looks || []) {
+        const look = exist.looks?.find(l => l.ln === lName);
+        if (look) look.looks_appear_episodes = mergeEps(look.looks_appear_episodes, eps);
+      }
+    }
+  }
+  for (const s of appearance.scenes || []) {
+    const exist = assets.scenes?.find(x => x.s === s.name);
+    if (exist) {
+      exist.eps = mergeEps(exist.eps, eps);
+      for (const stName of s.states || []) {
+        const st = exist.states?.find(x => x.sn === stName);
+        if (st) st.states_appear_episodes = mergeEps(st.states_appear_episodes, eps);
+      }
+    }
+  }
+  for (const i of appearance.items || []) {
+    const exist = assets.items?.find(x => x.n === i.name);
+    if (exist) {
+      exist.eps = mergeEps(exist.eps, eps);
+      for (const vName of i.variants || []) {
+        const v = exist.variants?.find(x => x.vn === vName);
+        if (v) v.variants_appear_episodes = mergeEps(v.variants_appear_episodes, eps);
+      }
+    }
+  }
+}
+
 /** 合并 2b 单实体详情 */
 export function mergeEntityDetail(base, entityType, parsed, episodeIndices = [], entityName = null) {
   const lib = structuredClone(base || { characters: [], scenes: [], items: [] });

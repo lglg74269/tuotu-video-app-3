@@ -687,7 +687,9 @@ function collectDetailTasks(parsed, acc, episodeIndices, updateCheckR) {
 function mergeEpisodeAppearanceLocal(list, episodeIndex, appearance) {
   const arr = [...(list || [])];
   while (arr.length <= episodeIndex) arr.push(null);
-  const mergeList = (a = [], b = [], variantKey) => {
+  
+  // variantKey: 'looks'/'states'/'variants', nameKey: 'ln'/'sn'/'vn'
+  const mergeList = (a = [], b = [], variantKey, nameKey) => {
     const map = new Map();
     for (const it of a || []) {
       if (typeof it === 'string') map.set(it, new Set());
@@ -695,21 +697,95 @@ function mergeEpisodeAppearanceLocal(list, episodeIndex, appearance) {
     }
     for (const it of b || []) {
       if (typeof it === 'string') { if (!map.has(it)) map.set(it, new Set()); }
-      else if (it?.n) {
-        const set = map.get(it.n) || new Set();
-        for (const v of it[variantKey] || []) set.add(v);
-        map.set(it.n, set);
+      else if (it?.n || it?.name) {
+        const name = it.n || it.name;
+        const set = map.get(name) || new Set();
+        for (const v of it[variantKey] || []) {
+          // v can be string or { ln: '...', eps: [1] }
+          const vName = typeof v === 'string' ? v : v[nameKey];
+          // Check if this look actually appeared in the current episodeIndex!
+          if (typeof v === 'object' && v.eps && Array.isArray(v.eps)) {
+            if (!v.eps.includes(episodeIndex + 1)) continue; // Not in this episode
+          }
+          if (vName) set.add(vName);
+        }
+        if (set.size) map.set(name, set);
       }
     }
-    return [...map.entries()].map(([n, set]) => ({ n, [variantKey]: set.size ? [...set] : [] }));
+    return [...map.entries()].map(([n, set]) => ({ n, [variantKey]: [...set] }));
   };
   const prev = arr[episodeIndex] || { characters: [], scenes: [], items: [] };
   arr[episodeIndex] = {
-    characters: mergeList(prev.characters, appearance?.characters, 'looks'),
-    scenes: mergeList(prev.scenes, appearance?.scenes, 'states'),
-    items: mergeList(prev.items, appearance?.items, 'variants'),
+    characters: mergeList(prev.characters, appearance?.characters, 'looks', 'ln'),
+    scenes: mergeList(prev.scenes, appearance?.scenes, 'states', 'sn'),
+    items: mergeList(prev.items, appearance?.items, 'variants', 'vn'),
   };
   return arr;
+}
+
+function mergeExistingAppearancesToAssets(assets, appearance, defaultIndices = []) {
+  if (!assets || !appearance) return;
+  const mergeEps = (a = [], b = []) => [...new Set([...(a || []), ...(b || [])])].sort((x, y) => x - y);
+  const defaultEps = defaultIndices.map(i => i + 1);
+
+  for (const c of appearance.characters || []) {
+    const name = c.n || c.name;
+    const exist = assets.characters?.find(x => x.n === name);
+    if (exist) {
+      // Find all episodes this character appeared in
+      let allCeps = [];
+      for (const v of c.looks || []) {
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        allCeps = mergeEps(allCeps, eps);
+      }
+      exist.eps = mergeEps(exist.eps, allCeps.length ? allCeps : defaultEps);
+      
+      for (const v of c.looks || []) {
+        const lName = typeof v === 'string' ? v : v.ln;
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        const look = exist.looks?.find(l => l.ln === lName);
+        if (look) look.looks_appear_episodes = mergeEps(look.looks_appear_episodes, eps);
+      }
+    }
+  }
+  for (const s of appearance.scenes || []) {
+    const name = s.n || s.name;
+    const exist = assets.scenes?.find(x => x.s === name);
+    if (exist) {
+      let allCeps = [];
+      for (const v of s.states || []) {
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        allCeps = mergeEps(allCeps, eps);
+      }
+      exist.eps = mergeEps(exist.eps, allCeps.length ? allCeps : defaultEps);
+
+      for (const v of s.states || []) {
+        const stName = typeof v === 'string' ? v : v.sn;
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        const st = exist.states?.find(x => x.sn === stName);
+        if (st) st.states_appear_episodes = mergeEps(st.states_appear_episodes, eps);
+      }
+    }
+  }
+  for (const i of appearance.items || []) {
+    const name = i.n || i.name;
+    const exist = assets.items?.find(x => x.n === name);
+    if (exist) {
+      let allCeps = [];
+      for (const v of i.variants || []) {
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        allCeps = mergeEps(allCeps, eps);
+      }
+      exist.eps = mergeEps(exist.eps, allCeps.length ? allCeps : defaultEps);
+
+      for (const v of i.variants || []) {
+        const vName = typeof v === 'string' ? v : v.vn;
+        const eps = (typeof v === 'object' && v.eps) ? v.eps : defaultEps;
+        const variant = exist.variants?.find(x => x.vn === vName);
+        if (variant) variant.variants_appear_episodes = mergeEps(variant.variants_appear_episodes, eps);
+      }
+    }
+  }
 }
 
 export async function produceAssets(options = {}) {
@@ -748,8 +824,18 @@ export async function produceAssets(options = {}) {
     } else {
       const processingIndices = getProcessingIndices();
       const targetIndices = processingIndices.length ? processingIndices : indices;
+      
+      let previousText = '';
+      if (targetIndices.length > 0) {
+        const firstIdx = targetIndices[0];
+        if (firstIdx > 0) {
+          const prevEp = activeProject.episodes[firstIdx - 1];
+          previousText = `【第${firstIdx}集（上集回顾）】${prevEp.title ? ` 标题：${prevEp.title}` : ''}\n${prevEp.text || ''}`;
+        }
+      }
+
       const fullText = targetIndices
-        .map((i) => `${activeProject.episodes[i].title || ''}\n${activeProject.episodes[i].text || ''}`)
+        .map((i) => `【第${i + 1}集】${activeProject.episodes[i].title ? ` 标题：${activeProject.episodes[i].title}` : ''}\n${activeProject.episodes[i].text || ''}`)
         .join('\n\n');
       if (!fullText.trim()) throw new Error('请先填写原文或完成分集');
 
@@ -776,6 +862,7 @@ export async function produceAssets(options = {}) {
             callWithRetry(
               () => Pipeline.checkUpdates({
                 currentText: fullText,
+                previousText: previousText,
                 textType: textType.value,
                 existingAssets: activeProject.assets,
               }, getController('s2').signal),
@@ -796,6 +883,21 @@ export async function produceAssets(options = {}) {
         if (updateCheckR?.payload) activeProject.payloads.s2.push({ label: `2a_b·更新检查（第${targetIndices.map((i) => i + 1).join('、')}集）`, text: updateCheckR.payload });
         lastMeta = namesR.meta;
         activeProject.assets = namesR.merged || activeProject.assets;
+
+        // Apply existing appearances immediately
+        if (updateCheckR && updateCheckR.parsed) {
+          const up = updateCheckR.parsed;
+          const appearance = {
+            characters: up.existing_character_appearances || [],
+            scenes: up.existing_scene_appearances || [],
+            items: up.existing_item_appearances || []
+          };
+          for (const idx of targetIndices) {
+            activeProject.episodeAppearance = mergeEpisodeAppearanceLocal(activeProject.episodeAppearance, idx, appearance);
+          }
+          mergeExistingAppearancesToAssets(activeProject.assets, appearance, targetIndices);
+        }
+
         tasks = collectDetailTasks(namesR.parsed, activeProject.assets, indices, updateCheckR);
       } catch (e) {
         showToast('warning', `2a 失败（${e.message}），将跳过并仅继续未完成的实体`);

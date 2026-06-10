@@ -9,7 +9,7 @@ import { toExistingData } from './step2_merge.js';
 /**
  * @param {{ currentText: string, existingAssets: object, textType: string }} args
  */
-export async function checkUpdates({ currentText, existingAssets, textType }) {
+export async function checkUpdates({ currentText, previousText, existingAssets, textType }) {
   // 若资产为空，直接返回空结果
   const hasExisting = (existingAssets?.characters?.length || 0) +
                       (existingAssets?.scenes?.length || 0) +
@@ -22,6 +22,9 @@ export async function checkUpdates({ currentText, existingAssets, textType }) {
         existing_character_updates: [],
         existing_scene_updates: [],
         existing_item_updates: [],
+        existing_character_appearances: [],
+        existing_scene_appearances: [],
+        existing_item_appearances: [],
       },
       meta: { model: '(skipped)', prompts: [] },
     };
@@ -30,6 +33,7 @@ export async function checkUpdates({ currentText, existingAssets, textType }) {
   const sysVer = await getActiveVersion('step2a_b.system');
   const prompt = fillTemplate(sysVer.content, {
     existing_data: toExistingData(existingAssets),
+    previous_text: previousText || '',
     current_text: currentText || '',
     text_type: textType || '解说文案',
   });
@@ -43,6 +47,9 @@ export async function checkUpdates({ currentText, existingAssets, textType }) {
       existing_character_updates: parsed?.existing_character_updates || [],
       existing_scene_updates: parsed?.existing_scene_updates || [],
       existing_item_updates: parsed?.existing_item_updates || [],
+      existing_character_appearances: parsed?.existing_character_appearances || [],
+      existing_scene_appearances: parsed?.existing_scene_appearances || [],
+      existing_item_appearances: parsed?.existing_item_appearances || [],
     },
     meta,
   };

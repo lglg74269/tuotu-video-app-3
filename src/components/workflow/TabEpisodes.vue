@@ -88,6 +88,7 @@ function handleRunSingleEpisodeStoryboard(idx, event) {
 }
 
 function isEpisodeExecutingOrQueued(idx) {
+  if (activeProject.episodeStatus && activeProject.episodeStatus[idx] === 'processing') return true;
   if (activeEpisodeTasks.has(idx)) return true;
   if (episodePipelineQueue.value.some(q => q.idx === idx)) return true;
   return false;
@@ -240,6 +241,7 @@ function getS2StatusClass(status) {
           v-for="(ep, idx) in activeProject.episodes" 
           :key="idx" 
           class="episode-card compact-card" 
+          :class="{ 'is-executing': isEpisodeExecutingOrQueued(idx) }"
           shadow="hover"
           @click="showEpisodeDetails(ep, idx)"
         >
@@ -268,7 +270,7 @@ function getS2StatusClass(status) {
                 :class="activeProject.episodeStatus[idx] || 'pending'"
               ></span>
             </div>
-            <div class="card-actions">
+            <div class="action-execute-wrapper">
               <el-button 
                 v-if="!isEpisodeExecutingOrQueued(idx)"
                 type="success" 
@@ -281,12 +283,15 @@ function getS2StatusClass(status) {
               <el-button 
                 v-else
                 type="info" 
+                :icon="VideoPlay"
                 :loading="true"
                 circle 
                 size="small" 
                 title="排队中或执行中..."
                 @click.stop
               />
+            </div>
+            <div class="action-delete-wrapper" v-if="!isEpisodeExecutingOrQueued(idx)">
               <el-button type="danger" :icon="Delete" circle size="small" @click="handleDeleteEpisode(idx, $event)" />
             </div>
           </div>
@@ -493,15 +498,34 @@ function getS2StatusClass(status) {
   gap: 10px;
 }
 
-.card-actions {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
+.action-execute-wrapper {
+  position: absolute !important;
+  top: 5px !important;
+  right: 5px !important;
   opacity: 0;
   transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.compact-card:hover .card-actions {
+.action-delete-wrapper {
+  position: absolute !important;
+  bottom: 5px !important;
+  right: 5px !important;
+  opacity: 0;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compact-card:hover .action-execute-wrapper,
+.compact-card.is-executing .action-execute-wrapper {
+  opacity: 1;
+}
+
+.compact-card:hover .action-delete-wrapper {
   opacity: 1;
 }
 
