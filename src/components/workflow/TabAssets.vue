@@ -148,7 +148,8 @@ async function doReAnalyze(overwrite) {
   
   try {
     const name = editingEntity.value.n || editingEntity.value.s;
-    await runManualDetailExtraction(props.entityType, name, selectedEpisodesForReAnalysis.value, overwrite);
+    const zeroIndexedEpisodes = selectedEpisodesForReAnalysis.value.map(val => val - 1);
+    await runManualDetailExtraction(props.entityType, name, zeroIndexedEpisodes, overwrite);
   } catch (e) {
     console.error(e);
   }
