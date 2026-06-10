@@ -358,7 +358,7 @@ function dedupeTasks(tasks) {
 function filterIncompleteTasks(tasks) {
   return tasks.filter((task) => {
     const ent = findEntityInAssets(task.entityType, task.entityName);
-    if (isEntityDetailComplete(task.entityType, ent)) return false;
+    if (!task.isUpdate && isEntityDetailComplete(task.entityType, ent)) return false;
     task.existingEntity = ent || task.existingEntity || null;
     return true;
   });
@@ -655,25 +655,32 @@ function getExtractIndices() {
 function collectDetailTasks(parsed, acc, episodeIndices, updateCheckR) {
   const tasks = [];
   const seen = new Set();
-  const add = (entityType, entityName) => {
+  const add = (entityType, entityName, isUpdate = false) => {
     const key = `${entityType}:${entityName}`;
-    if (seen.has(key)) return;
+    if (seen.has(key)) {
+      // If we see it again as an update, we should mark the existing task as update
+      if (isUpdate) {
+        const t = tasks.find(t => t.entityType === entityType && t.entityName === entityName);
+        if (t) t.isUpdate = true;
+      }
+      return;
+    }
     seen.add(key);
     let existingEntity = null;
     if (entityType === 'character') existingEntity = acc.characters?.find((c) => c.n === entityName) || null;
     else if (entityType === 'scene') existingEntity = acc.scenes?.find((s) => s.s === entityName) || null;
     else existingEntity = acc.items?.find((it) => it.n === entityName) || null;
-    tasks.push({ entityType, entityName, existingEntity, episodeIndices });
+    tasks.push({ entityType, entityName, existingEntity, episodeIndices, isUpdate });
   };
   
   const up = updateCheckR?.parsed || parsed || {};
   
-  for (const n of parsed?.new_character_names || []) add('character', n);
-  for (const n of up.existing_character_updates || []) add('character', n);
-  for (const n of parsed?.new_scene_names || []) add('scene', n);
-  for (const n of up.existing_scene_updates || []) add('scene', n);
-  for (const n of parsed?.new_item_names || []) add('item', n);
-  for (const n of up.existing_item_updates || []) add('item', n);
+  for (const n of parsed?.new_character_names || []) add('character', n, false);
+  for (const n of up.existing_character_updates || []) add('character', n, true);
+  for (const n of parsed?.new_scene_names || []) add('scene', n, false);
+  for (const n of up.existing_scene_updates || []) add('scene', n, true);
+  for (const n of parsed?.new_item_names || []) add('item', n, false);
+  for (const n of up.existing_item_updates || []) add('item', n, true);
   return tasks;
 }
 
