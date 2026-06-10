@@ -455,11 +455,17 @@ async function runOne2bTask(task, indices, onMeta) {
         const p = res.parsed;
         let hasData = false;
         if (task.entityType === 'character') {
-          if (p.s || p.a || p.ae || p.p || (p.looks && p.looks.length > 0)) hasData = true;
+          const c = p.character || p.characters?.[0] || {};
+          const ex = p.existing_character_new_looks || [];
+          if (c.s || c.a || c.ae || c.c || (c.looks && c.looks.length > 0) || ex.length > 0) hasData = true;
         } else if (task.entityType === 'scene') {
-          if (p.sd || (p.states && p.states.length > 0)) hasData = true;
+          const s = p.scene || p.scenes?.[0] || {};
+          const ex = p.existing_scene_new_states || [];
+          if (s.d || (s.states && s.states.length > 0) || ex.length > 0) hasData = true;
         } else if (task.entityType === 'item') {
-          if (p.d || (p.variants && p.variants.length > 0)) hasData = true;
+          const i = p.item || p.items?.[0] || {};
+          const ex = p.existing_item_new_variants || [];
+          if (i.d || (i.variants && i.variants.length > 0) || ex.length > 0) hasData = true;
         }
 
         if (!hasData) {
