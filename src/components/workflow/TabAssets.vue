@@ -233,6 +233,7 @@ async function doReAnalyze(overwrite) {
                   {{ c.n }}
                   <el-tag v-if="c._status === 'extracting'" type="warning" size="small" class="ml4">提取资料中...</el-tag>
                   <el-tag v-else-if="c._status === 'updating'" type="warning" size="small" class="ml4">资料更新中...</el-tag>
+                  <el-tag v-else-if="c._status === 'error'" type="danger" size="small" class="ml4">提取失败(请重试)</el-tag>
                 </span>
                 <el-tag size="small" type="info">{{ c.rt || '无定位' }}</el-tag>
               </div>
@@ -276,6 +277,7 @@ async function doReAnalyze(overwrite) {
                   {{ s.s }}
                   <el-tag v-if="s._status === 'extracting'" type="warning" size="small" class="ml4">提取资料中...</el-tag>
                   <el-tag v-else-if="s._status === 'updating'" type="warning" size="small" class="ml4">资料更新中...</el-tag>
+                  <el-tag v-else-if="s._status === 'error'" type="danger" size="small" class="ml4">提取失败(请重试)</el-tag>
                 </span>
               </div>
             </template>
@@ -310,6 +312,7 @@ async function doReAnalyze(overwrite) {
                   {{ i.n }}
                   <el-tag v-if="i._status === 'extracting'" type="warning" size="small" class="ml4">提取资料中...</el-tag>
                   <el-tag v-else-if="i._status === 'updating'" type="warning" size="small" class="ml4">资料更新中...</el-tag>
+                  <el-tag v-else-if="i._status === 'error'" type="danger" size="small" class="ml4">提取失败(请重试)</el-tag>
                 </span>
               </div>
             </template>

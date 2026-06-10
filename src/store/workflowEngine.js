@@ -434,28 +434,48 @@ async function runOne2bTask(task, indices, onMeta) {
     entityPre._status = entityPre._pending ? 'extracting' : 'updating';
   }
 
-  const r = await callWithRetry(
-    () =>
-      Pipeline.extractDetail({
-        entityType: task.entityType,
-        entityName: task.entityName,
-        existingEntity: task.existingEntity || findEntityInAssets(task.entityType, task.entityName),
-        allEpisodes: episodesForPrompt,
-        newEpisodeIndices: task.episodeIndices || indices,
-        voiceLibrary: activeProject.voiceLibrary,
-        textType: textType.value,
-        metaInfo: activeProject.assets.meta_info,
-        existingAssets: activeProject.assets,
-      }, getController('s2').signal),
-    activeProject.s2bRetries,
-    activeProject.s2bRetryDelayMs,
-    's2'
-  );
-  const elapsed = Date.now() - start;
-  if (!activeProject.payloads.s2) activeProject.payloads.s2 = [];
-  if (r.payload) activeProject.payloads.s2.push({ label: `2b·${task.entityType}·${task.entityName}`, text: r.payload });
-  if (r.meta) onMeta(r.meta);
-  if (!r.parsed) throw new Error('模型未返回有效 JSON');
+  try {
+    const r = await callWithRetry(
+      async () => {
+        const res = await Pipeline.extractDetail({
+          entityType: task.entityType,
+          entityName: task.entityName,
+          existingEntity: task.existingEntity || findEntityInAssets(task.entityType, task.entityName),
+          allEpisodes: episodesForPrompt,
+          newEpisodeIndices: task.episodeIndices || indices,
+          voiceLibrary: activeProject.voiceLibrary,
+          textType: textType.value,
+          metaInfo: activeProject.assets.meta_info,
+          existingAssets: activeProject.assets,
+        }, getController('s2').signal);
+
+        if (!res.parsed) throw new Error('模型未返回有效 JSON');
+        
+        // 校验返回数据是否为空壳
+        const p = res.parsed;
+        let hasData = false;
+        if (task.entityType === 'character') {
+          if (p.s || p.a || p.ae || p.p || (p.looks && p.looks.length > 0)) hasData = true;
+        } else if (task.entityType === 'scene') {
+          if (p.sd || (p.states && p.states.length > 0)) hasData = true;
+        } else if (task.entityType === 'item') {
+          if (p.d || (p.variants && p.variants.length > 0)) hasData = true;
+        }
+
+        if (!hasData) {
+          throw new Error('API 错误: 提取数据不完整，大模型仅返回了名称无具体资料');
+        }
+
+        return res;
+      },
+      activeProject.s2bRetries,
+      activeProject.s2bRetryDelayMs,
+      's2'
+    );
+    const elapsed = Date.now() - start;
+    if (!activeProject.payloads.s2) activeProject.payloads.s2 = [];
+    if (r.payload) activeProject.payloads.s2.push({ label: `2b·${task.entityType}·${task.entityName}`, text: r.payload });
+    if (r.meta) onMeta(r.meta);
   
   await enqueueAssetMerge(async () => {
     const listKey = task.entityType === 'character' ? 'characters' : task.entityType === 'scene' ? 'scenes' : 'items';
@@ -510,9 +530,15 @@ async function runOne2bTask(task, indices, onMeta) {
         }
       }
     }
-    autoSave();
   });
+  autoSave();
+
+  if (entityPre) delete entityPre._status; // 成功后清除状态
   markTaskDone(task);
+  } catch (e) {
+    if (entityPre) entityPre._status = 'error'; // 失败后标记错误
+    throw e;
+  }
 }
 
 export async function runManualDetailExtraction(entityType, entityName, episodeIndices, overwrite) {
@@ -1548,7 +1574,11 @@ export async function runFullPipeline() {
     if (!N) { showToast('error', '分集失败，没有获得分集数据'); return; }
 
     try {
-      await produceAssets();
+      // 只有在真的有待提取集数时才提取
+      const pendingIndices = getExtractIndices();
+      if (pendingIndices.length > 0) {
+        await produceAssets();
+      }
     } catch (e) {
       showToast('error', `资产提取失败: ${e.message}`);
       return;
