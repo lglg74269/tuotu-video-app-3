@@ -15,16 +15,6 @@ async function confirmInput() {
     return;
   }
   
-  // Save into history
-  activeProject.uploadHistory.unshift({
-    id: Date.now(),
-    text: activeProject.inputText,
-    timestamp: new Date().toLocaleString()
-  });
-  if (activeProject.uploadHistory.length > 50) {
-    activeProject.uploadHistory = activeProject.uploadHistory.slice(0, 50);
-  }
-  
   autoSave();
   ElMessage.success('文本已确认，开始分析');
   

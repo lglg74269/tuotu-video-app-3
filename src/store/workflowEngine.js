@@ -229,17 +229,15 @@ export function runSegment(customText = null) {
     const extra = r.batchCount ? `（${r.batchCount} 批次 / 锚点 ${r.markers ? r.markers.length : 0}）` : '';
     autoSave();
     
-    // Also save into uploadHistory if customText was provided
-    if (customText) {
-      activeProject.uploadHistory.unshift({
-        id: Date.now(),
-        text: customText,
-        timestamp: new Date().toLocaleString()
-      });
-      // Limit history to 50 items
-      if (activeProject.uploadHistory.length > 50) {
-        activeProject.uploadHistory = activeProject.uploadHistory.slice(0, 50);
-      }
+    // Always save into uploadHistory
+    activeProject.uploadHistory.unshift({
+      id: Date.now(),
+      text: textToSegment,
+      timestamp: new Date().toLocaleString()
+    });
+    // Limit history to 50 items
+    if (activeProject.uploadHistory.length > 50) {
+      activeProject.uploadHistory = activeProject.uploadHistory.slice(0, 50);
     }
 
     let resultMsg = `已处理完毕。新增追加 ${appendedCount} 集`;
@@ -654,7 +652,7 @@ function getExtractIndices() {
   return activeProject.episodes.map((_, i) => i).filter((i) => activeProject.epState.s2[i] !== 'done');
 }
 
-function collectDetailTasks(parsed, acc, episodeIndices) {
+function collectDetailTasks(parsed, acc, episodeIndices, updateCheckR) {
   const tasks = [];
   const seen = new Set();
   const add = (entityType, entityName) => {
@@ -667,12 +665,15 @@ function collectDetailTasks(parsed, acc, episodeIndices) {
     else existingEntity = acc.items?.find((it) => it.n === entityName) || null;
     tasks.push({ entityType, entityName, existingEntity, episodeIndices });
   };
+  
+  const up = updateCheckR?.parsed || parsed || {};
+  
   for (const n of parsed?.new_character_names || []) add('character', n);
-  for (const n of parsed?.existing_character_updates || []) add('character', n);
+  for (const n of up.existing_character_updates || []) add('character', n);
   for (const n of parsed?.new_scene_names || []) add('scene', n);
-  for (const n of parsed?.existing_scene_updates || []) add('scene', n);
+  for (const n of up.existing_scene_updates || []) add('scene', n);
   for (const n of parsed?.new_item_names || []) add('item', n);
-  for (const n of parsed?.existing_item_updates || []) add('item', n);
+  for (const n of up.existing_item_updates || []) add('item', n);
   return tasks;
 }
 
