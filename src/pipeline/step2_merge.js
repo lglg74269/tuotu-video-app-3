@@ -139,25 +139,26 @@ export function mergeEntityDetail(base, entityType, parsed, episodeIndices = [],
 
   if (entityType === 'character') {
     const c = parsed?.character || parsed?.characters?.[0];
-    if (!c?.n) return lib;
-    // fallback：模型可能改写了名字，用 entityName 兜底匹配
-    let exist = lib.characters.find((x) => x.n === c.n)
-      || (entityName && lib.characters.find((x) => x.n === entityName));
-    if (exist && exist.n !== c.n) c.n = exist.n; // 修正模型改写的名字
-    if (!exist) {
-      exist = { ...c, eps: [...eps] };
-      delete exist._pending;
-      lib.characters.push(exist);
-    } else {
-      const prevLooks = exist.looks;
-      const prevEps = exist.eps;
-      const { looks, eps: _cEps, ...restC } = c;
-      Object.assign(exist, restC, { _pending: undefined });
-      exist.looks = dedupLooks(prevLooks, c.looks);
-      exist.eps = mergeEps(prevEps, eps);
+    if (c?.n) {
+      // fallback：模型可能改写了名字，用 entityName 兜底匹配
+      let exist = lib.characters.find((x) => x.n === c.n)
+        || (entityName && lib.characters.find((x) => x.n === entityName));
+      if (exist && exist.n !== c.n) c.n = exist.n; // 修正模型改写的名字
+      if (!exist) {
+        exist = { ...c, eps: [...eps] };
+        delete exist._pending;
+        lib.characters.push(exist);
+      } else {
+        const prevLooks = exist.looks;
+        const prevEps = exist.eps;
+        const { looks, eps: _cEps, ...restC } = c;
+        Object.assign(exist, restC, { _pending: undefined });
+        exist.looks = dedupLooks(prevLooks, c.looks);
+        exist.eps = mergeEps(prevEps, eps);
+      }
     }
     for (const grp of parsed?.existing_character_new_looks || []) {
-      const e = lib.characters.find((x) => x.n === grp.n);
+      const e = lib.characters.find((x) => x.n === grp.n) || (entityName && lib.characters.find((x) => x.n === entityName));
       if (e) {
         e.looks = dedupLooks(e.looks, grp.looks);
         e.eps = mergeEps(e.eps, eps);
@@ -165,25 +166,26 @@ export function mergeEntityDetail(base, entityType, parsed, episodeIndices = [],
     }
   } else if (entityType === 'scene') {
     const s = parsed?.scene || parsed?.scenes?.[0];
-    if (!s?.s) return lib;
-    // fallback：模型可能改写了场景名，用 entityName 兜底匹配
-    let exist = lib.scenes.find((x) => x.s === s.s)
-      || (entityName && lib.scenes.find((x) => x.s === entityName));
-    if (exist && exist.s !== s.s) s.s = exist.s; // 修正模型改写的名字
-    if (!exist) {
-      exist = { ...s, eps: [...eps] };
-      delete exist._pending;
-      lib.scenes.push(exist);
-    } else {
-      const prevStates = exist.states;
-      const prevEps = exist.eps;
-      const { states, eps: _sEps, ...restS } = s;
-      Object.assign(exist, restS, { _pending: undefined });
-      exist.states = dedupBy(prevStates, s.states, 'sn', 'states_appear_episodes');
-      exist.eps = mergeEps(prevEps, eps);
+    if (s?.s) {
+      // fallback：模型可能改写了场景名，用 entityName 兜底匹配
+      let exist = lib.scenes.find((x) => x.s === s.s)
+        || (entityName && lib.scenes.find((x) => x.s === entityName));
+      if (exist && exist.s !== s.s) s.s = exist.s; // 修正模型改写的名字
+      if (!exist) {
+        exist = { ...s, eps: [...eps] };
+        delete exist._pending;
+        lib.scenes.push(exist);
+      } else {
+        const prevStates = exist.states;
+        const prevEps = exist.eps;
+        const { states, eps: _sEps, ...restS } = s;
+        Object.assign(exist, restS, { _pending: undefined });
+        exist.states = dedupBy(prevStates, s.states, 'sn', 'states_appear_episodes');
+        exist.eps = mergeEps(prevEps, eps);
+      }
     }
     for (const grp of parsed?.existing_scene_new_states || []) {
-      const e = lib.scenes.find((x) => x.s === grp.n);
+      const e = lib.scenes.find((x) => x.s === grp.n) || (entityName && lib.scenes.find((x) => x.s === entityName));
       if (e) {
         e.states = dedupBy(e.states, grp.states, 'sn', 'states_appear_episodes');
         e.eps = mergeEps(e.eps, eps);
@@ -191,25 +193,26 @@ export function mergeEntityDetail(base, entityType, parsed, episodeIndices = [],
     }
   } else if (entityType === 'item') {
     const it = parsed?.item || parsed?.items?.[0];
-    if (!it?.n) return lib;
-    // fallback：模型可能改写了物品名，用 entityName 兜底匹配
-    let exist = lib.items.find((x) => x.n === it.n)
-      || (entityName && lib.items.find((x) => x.n === entityName));
-    if (exist && exist.n !== it.n) it.n = exist.n; // 修正模型改写的名字
-    if (!exist) {
-      exist = { ...it, eps: [...eps] };
-      delete exist._pending;
-      lib.items.push(exist);
-    } else {
-      const prevVariants = exist.variants;
-      const prevEps = exist.eps;
-      const { variants, eps: _itEps, ...restIt } = it;
-      Object.assign(exist, restIt, { _pending: undefined });
-      exist.variants = dedupBy(prevVariants, it.variants, 'vn', 'variants_appear_episodes');
-      exist.eps = mergeEps(prevEps, eps);
+    if (it?.n) {
+      // fallback：模型可能改写了物品名，用 entityName 兜底匹配
+      let exist = lib.items.find((x) => x.n === it.n)
+        || (entityName && lib.items.find((x) => x.n === entityName));
+      if (exist && exist.n !== it.n) it.n = exist.n; // 修正模型改写的名字
+      if (!exist) {
+        exist = { ...it, eps: [...eps] };
+        delete exist._pending;
+        lib.items.push(exist);
+      } else {
+        const prevVariants = exist.variants;
+        const prevEps = exist.eps;
+        const { variants, eps: _itEps, ...restIt } = it;
+        Object.assign(exist, restIt, { _pending: undefined });
+        exist.variants = dedupBy(prevVariants, it.variants, 'vn', 'variants_appear_episodes');
+        exist.eps = mergeEps(prevEps, eps);
+      }
     }
     for (const grp of parsed?.existing_item_new_variants || []) {
-      const e = lib.items.find((x) => x.n === grp.n);
+      const e = lib.items.find((x) => x.n === grp.n) || (entityName && lib.items.find((x) => x.n === entityName));
       if (e) {
         e.variants = dedupBy(e.variants, grp.variants, 'vn', 'variants_appear_episodes');
         e.eps = mergeEps(e.eps, eps);
