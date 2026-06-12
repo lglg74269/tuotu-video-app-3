@@ -342,6 +342,15 @@ async function doReAnalyze(overwrite) {
           </el-card>
         </template>
       </div>
+      
+      <div v-if="activeProject.isAssetExtractionLoopRunning && activeProject.pendingAssetExtractionIndices?.length > 0" class="asset-extraction-pending-hint" style="margin-top: 20px;">
+        <el-alert 
+          title="更多后续剧集资产正在排队接力提取中，您现在就可以放心制作已完成的分镜剧集..." 
+          type="info" 
+          show-icon 
+          :closable="false"
+        />
+      </div>
     </div>
 
     <el-dialog

@@ -58,6 +58,10 @@ export const activeProject = reactive({
   creativeOverrideShots: '',
   creativeOverrides: {},
 
+  // 批处理循环提取状态
+  isAssetExtractionLoopRunning: false,
+  pendingAssetExtractionIndices: [],
+
   // 选择标记
   extractSelected: [],
   s4xSelected: [],
@@ -111,6 +115,10 @@ export function resetActiveProject() {
   activeProject.s4cSelected = [];
   activeProject.sbSelected = [];
   activeProject.uploadHistory = [];
+
+  // 批处理状态
+  activeProject.isAssetExtractionLoopRunning = false;
+  activeProject.pendingAssetExtractionIndices = [];
 }
 
 // 从 Schema v3 格式反序列化到 activeProject

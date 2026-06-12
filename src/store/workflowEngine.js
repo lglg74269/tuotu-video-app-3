@@ -424,13 +424,21 @@ async function runOne2bTask(task, indices, onMeta) {
     ? processingIndices.map((i) => ({ title: activeProject.episodes[i].title, text: activeProject.episodes[i].text, episode_index: i }))
     : activeProject.episodes.map((e, i) => ({ title: e.title, text: e.text, episode_index: i }));
   
-  // Set status before extraction
-  const listKey = task.entityType === 'character' ? 'characters' : task.entityType === 'scene' ? 'scenes' : 'items';
-  const entityListPre = activeProject.assets[listKey] || [];
-  const entityPre = entityListPre.find(e => e.n === task.entityName || e.s === task.entityName);
-  if (entityPre) {
-    entityPre._status = entityPre._pending ? 'extracting' : 'updating';
+  // Helper to reliably update status even after activeProject.assets is recreated
+  const listKeyPre = task.entityType === 'character' ? 'characters' : task.entityType === 'scene' ? 'scenes' : 'items';
+  const entityPre = (activeProject.assets[listKeyPre] || []).find(e => e.n === task.entityName || e.s === task.entityName);
+  const isExtracting = entityPre?._pending;
+
+  function setStatus(status) {
+    const listKey = task.entityType === 'character' ? 'characters' : task.entityType === 'scene' ? 'scenes' : 'items';
+    const entity = (activeProject.assets[listKey] || []).find(e => e.n === task.entityName || e.s === task.entityName);
+    if (entity) {
+      if (status === null) delete entity._status;
+      else entity._status = status;
+    }
   }
+
+  setStatus(isExtracting ? 'extracting' : 'updating');
 
   try {
     const r = await callWithRetry(
@@ -537,10 +545,10 @@ async function runOne2bTask(task, indices, onMeta) {
   });
   autoSave();
 
-  if (entityPre) delete entityPre._status; // 成功后清除状态
+  setStatus(null); // 成功后清除状态
   markTaskDone(task);
   } catch (e) {
-    if (entityPre) entityPre._status = 'error'; // 失败后标记错误
+    setStatus('error'); // 失败后标记错误
     throw e;
   }
 }
@@ -948,16 +956,87 @@ export async function produceAssets(options = {}) {
   }
 }
 
+export async function runAssetExtractionDaemon(indicesToProcess, resumeOnly = false) {
+  if (activeProject.isAssetExtractionLoopRunning) return { skipped: true };
+  activeProject.isAssetExtractionLoopRunning = true;
+  activeProject.pendingAssetExtractionIndices = [...indicesToProcess];
+  
+  let totalSuccess = 0;
+  let totalFailed = 0;
+
+  try {
+    while (activeProject.pendingAssetExtractionIndices.length > 0) {
+      if (shouldStop('s2') || fullPipelineStop.value) {
+        break;
+      }
+
+      // 1. 切片打包：最多 10 集，且不超过 40000 字（单集超限兜底提取）
+      let batch = [];
+      let currentChars = 0;
+      const MAX_EPS = 10;
+      const MAX_CHARS = 40000;
+
+      for (const idx of activeProject.pendingAssetExtractionIndices) {
+        if (batch.length >= MAX_EPS) break;
+        const textLen = (activeProject.episodes[idx]?.title?.length || 0) + (activeProject.episodes[idx]?.text?.length || 0);
+        
+        if (currentChars + textLen > MAX_CHARS) {
+          if (batch.length === 0) {
+            batch.push(idx); // 单集超限保底
+          }
+          break;
+        }
+
+        batch.push(idx);
+        currentChars += textLen;
+      }
+
+      if (batch.length === 0) break;
+
+      // 2. 执行批次
+      try {
+        const r = await produceAssets({ resumeOnly, forceIndices: batch });
+        activeProject.pendingAssetExtractionIndices = activeProject.pendingAssetExtractionIndices.filter(i => !batch.includes(i));
+        
+        if (r && !r.skipped) {
+          totalSuccess += r.success || 0;
+          totalFailed += r.failed || 0;
+        }
+      } catch (e) {
+        if (e.message && (e.message.includes('429') || e.message.includes('TPM'))) {
+          showToast('warning', '触发大模型频率限制(429)，系统等待10秒后自动重试本批次...');
+          await sleep(10000);
+          continue; // 不移除 batch，重试
+        } else if (e.message === '用户已停止') {
+          break;
+        } else {
+          showToast('error', `批次提取资产失败: ${e.message}`);
+          break;
+        }
+      }
+
+      await sleep(1000); // 批次间短暂安全休息
+    }
+  } finally {
+    activeProject.isAssetExtractionLoopRunning = false;
+    autoSave();
+  }
+  
+  return { ok: totalFailed === 0, success: totalSuccess, failed: totalFailed, skipped: totalSuccess === 0 && totalFailed === 0 };
+}
+
 export function runExtract() {
   return withBusy('s2', async () => {
-    const r = await produceAssets({ resumeOnly: false });
-    autoSave();
-    if (r.skipped) {
+    const indices = getExtractIndices();
+    if (!indices.length) {
+      showToast('error', '没有待提取的集数（可勾选集数或清除已完成标记）');
+      return;
+    }
+    const r = await runAssetExtractionDaemon(indices, false);
+    if (activeProject.pendingAssetExtractionIndices.length === 0 && !r.skipped) {
+      showToast('success', `所有资产批次提取完成！成功：${r.success}，失败：${r.failed}`);
+    } else if (r.skipped && activeProject.pendingAssetExtractionIndices.length === 0) {
       showToast('success', '所有实体均已提取完成，无需重复运行');
-    } else if (r.failed) {
-      showToast('warning', `部分完成：${r.success}/${r.total} 个实体成功，${r.failed} 个失败，可点「继续未完成」`);
-    } else {
-      showToast('success', `资产提取完成：角色${activeProject.assets.characters.length}/场景${activeProject.assets.scenes.length}/物品${activeProject.assets.items.length}`);
     }
   });
 }
@@ -968,14 +1047,11 @@ export function runExtractForEpisodes(indices, resumeOnly = false) {
       showToast('warning', '请选择至少一集');
       return;
     }
-    const r = await produceAssets({ resumeOnly, forceIndices: indices });
-    autoSave();
-    if (r.skipped) {
+    const r = await runAssetExtractionDaemon(indices, resumeOnly);
+    if (activeProject.pendingAssetExtractionIndices.length === 0 && !r.skipped) {
+      showToast('success', `指定集数循环提取完成！成功：${r.success}，失败：${r.failed}`);
+    } else if (r.skipped && activeProject.pendingAssetExtractionIndices.length === 0) {
       showToast('success', '实体均已提取完成，无需重复运行');
-    } else if (r.failed) {
-      showToast('warning', `部分完成：${r.success}/${r.total} 成功，${r.failed} 失败，可重试`);
-    } else {
-      showToast('success', `指定集数资产提取完成`);
     }
   });
 }
@@ -986,12 +1062,13 @@ export function runExtractContinue() {
       showToast('error', '没有未完成的实体');
       return;
     }
-    const r = await produceAssets({ resumeOnly: true, forceIndices: activeProject.episodes.map((_, i) => i) });
-    autoSave();
-    if (r.failed) {
+    // resumeOnly needs to check all episodes that might be incomplete
+    const indices = activeProject.episodes.map((_, i) => i);
+    const r = await runAssetExtractionDaemon(indices, true);
+    if (activeProject.pendingAssetExtractionIndices.length === 0 && r.failed > 0) {
       showToast('warning', `仍有 ${r.failed} 个实体失败，可稍后再次继续`);
-    } else {
-      showToast('success', `未完成实体已全部补全：角${activeProject.assets.characters.length}/景${activeProject.assets.scenes.length}/物${activeProject.assets.items.length}`);
+    } else if (activeProject.pendingAssetExtractionIndices.length === 0) {
+      showToast('success', `未完成实体已全部补全`);
     }
   });
 }
@@ -1690,13 +1767,15 @@ export async function runFullPipeline() {
     if (!N) { showToast('error', '分集失败，没有获得分集数据'); return; }
 
     try {
-      // 只有在真的有待提取集数时才提取
       const pendingIndices = getExtractIndices();
       if (pendingIndices.length > 0) {
-        await produceAssets();
+        // 在后台启动守护进程提资产，但不 await 阻塞全流程！
+        runAssetExtractionDaemon(pendingIndices, false).catch(e => {
+          console.error('后台资产提取出错', e);
+        });
       }
     } catch (e) {
-      showToast('error', `资产提取失败: ${e.message}`);
+      showToast('error', `资产提取启动失败: ${e.message}`);
       return;
     }
     if (fullPipelineStop.value) { showToast('warning', '全流程已停止'); return; }
@@ -1726,8 +1805,9 @@ export async function runFullPipeline() {
     if (pendingIndices.length === 0) {
       showToast('success', `全流程检测完成！${N} 集已全部处理完毕`);
     } else {
-      enqueueEpisodePipeline(pendingIndices, { runVideo: true });
-      showToast('success', `全流程已启动，共有 ${pendingIndices.length} 集加入后台处理队列`);
+      // 启动管线守护进程，但不把所有集数硬塞进队列。管线会自动巡检 s2 === 'done' 的集数并加入队列
+      enqueueEpisodePipeline([], { runVideo: true });
+      showToast('success', `全流程已启动，资产接力提取完成后将自动进入分镜队列`);
     }
 
   } catch (e) {
@@ -1755,6 +1835,17 @@ async function processEpisodePipelineDaemon() {
       return;
     }
 
+    // 全流程模式下，动态巡检：只要有集数提取完了资产（s2 === 'done'），就将其投入分镜管线
+    if (fullPipelineRunning.value) {
+      for (let i = 0; i < activeProject.episodes.length; i++) {
+        if (activeProject.epState.s2[i] === 'done' && activeProject.epState.s4c[i] !== 'done') {
+          if (!episodePipelineQueue.value.find(q => q.idx === i) && !activeEpisodeTasks.has(i)) {
+            episodePipelineQueue.value.push({ idx: i, runVideo: true });
+          }
+        }
+      }
+    }
+
     const concurrency = Math.max(1, Math.min(Number(getSbC()) || 2, activeProject.episodes.length));
 
     while (activeEpisodeTasks.size < concurrency && episodePipelineQueue.value.length > 0) {
@@ -1768,21 +1859,15 @@ async function processEpisodePipelineDaemon() {
         try {
           // Check if assets need extraction for this episode
           if (activeProject.epState.s2[i] !== 'done') {
-            while (produceAssetsLock) await sleep(500);
+            // 我们不再去强行单集提资产，而是等待守护进程提取完毕
+            while (activeProject.epState.s2[i] !== 'done' && !fullPipelineStop.value && activeProject.isAssetExtractionLoopRunning) {
+              await sleep(1000);
+            }
             if (fullPipelineStop.value) return;
-            // Double check after lock
+            // 如果守护进程停了，但依然没 done，说明资产提取失败或被终止，该集流水线不能进入下一步
             if (activeProject.epState.s2[i] !== 'done') {
-              produceAssetsLock = true;
-              try {
-                // Ensure the project still has episodes
-                if (i < activeProject.episodes.length) {
-                  await produceAssets({ forceIndices: [i] });
-                }
-              } catch(e) {
-                console.warn(`自动补充提取资产失败 集数 ${i+1}:`, e);
-              } finally {
-                produceAssetsLock = false;
-              }
+              console.warn(`全流程：第 ${i+1} 集等待资产提取失败或中断，无法继续下游分镜`);
+              return;
             }
           }
 
@@ -1807,12 +1892,17 @@ async function processEpisodePipelineDaemon() {
     }
 
     if (episodePipelineQueue.value.length === 0 && activeEpisodeTasks.size === 0) {
-      daemonRunning = false;
-      fullPipelineRunning.value = false;
-      if (!fullPipelineStop.value) {
-        showToast('success', '全流程及所有后台队列任务已处理完成');
+      // 如果正处在一键全流程中，且资产提取守护进程还在跑，说明我们需要耐心等待资产提完，不要退出分镜守护进程
+      if (fullPipelineRunning.value && activeProject.isAssetExtractionLoopRunning) {
+        // do nothing, let it sleep and check again
+      } else {
+        daemonRunning = false;
+        fullPipelineRunning.value = false;
+        if (!fullPipelineStop.value) {
+          showToast('success', '全流程及所有后台队列任务已处理完成');
+        }
+        break;
       }
-      break;
     }
 
     await sleep(500);
