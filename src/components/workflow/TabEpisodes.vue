@@ -197,6 +197,18 @@ function getS2StatusClass(status) {
           <span class="muted-hint">（填0或不填表示不按字数硬性切割）</span>
         </div>
 
+        <div class="input-group">
+          <span class="label">处理并发数:</span>
+          <el-input-number 
+            v-model="currentSeg.concurrency" 
+            :min="1" 
+            :max="50" 
+            :step="1" 
+            size="default" 
+            controls-position="right"
+          />
+        </div>
+
         <div class="actions">
           <el-button 
             v-if="busy.s1" 

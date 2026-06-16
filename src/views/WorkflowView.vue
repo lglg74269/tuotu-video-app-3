@@ -4,8 +4,12 @@ import { useRoute, useRouter } from 'vue-router';
 import { loadProject, activeProject } from '../store/projectStore.js';
 import { ElMessage } from 'element-plus';
 
-// 导入子组件
-import TabUpload from '../components/workflow/TabUpload.vue';
+// 导入视图组件
+import UploadScriptView from '../components/views/UploadScriptView.vue';
+import ProjectProgressModal from '../components/views/ProjectProgressModal.vue';
+import ProjectDashboard from '../components/views/ProjectDashboard.vue';
+
+// 导入原有子组件
 import TabEpisodes from '../components/workflow/TabEpisodes.vue';
 import TabAssets from '../components/workflow/TabAssets.vue';
 import TabStoryboard from '../components/workflow/TabStoryboard.vue';
@@ -15,21 +19,27 @@ import PayloadPreviewModal from '../components/workflow/PayloadPreviewModal.vue'
 // 导入引擎控制
 import { 
   fullPipelineRunning, 
-  runFullPipeline, 
   stopFullPipeline,
   busy
 } from '../store/workflowEngine.js';
 
 const route = useRoute();
 const router = useRouter();
-const currentTab = ref('upload');
 const logsDialogVisible = ref(false);
 const rawJsonVisible = ref(false);
+
+const currentView = computed(() => activeProject.uiState?.currentView || 'upload');
+const isAssetView = computed(() => ['character', 'scene', 'item'].includes(currentView.value));
 
 onMounted(async () => {
   const name = route.params.id;
   try {
     await loadProject(name);
+    // If it's a new project, default to upload.
+    // If it's an existing project with episodes, skip to dashboard.
+    if (activeProject.episodes.length > 0 && activeProject.uiState.progressStage === 0) {
+      activeProject.uiState.currentView = 'dashboard';
+    }
   } catch (e) {
     ElMessage.error('项目加载失败');
     router.push('/');
@@ -38,10 +48,6 @@ onMounted(async () => {
 
 function goHome() {
   router.push('/');
-}
-
-function goToSettings() {
-  router.push('/settings');
 }
 
 // 格式化时间
@@ -102,6 +108,33 @@ const stepLogs = computed(() => {
     };
   });
 });
+
+function returnToDashboard() {
+  // If returning from confirmation inside progress stage
+  if (activeProject.uiState.progressStage > 0 && activeProject.uiState.progressStage < 4 && !canEnterDashboard.value) {
+    activeProject.uiState.currentView = 'upload'; // wait, modal is shown when currentView is upload, or maybe progress Modal should be its own view?
+    // Let's make progress modal render over dashboard or upload? No, progress modal IS the upload view when progressStage > 0.
+  } else {
+    activeProject.uiState.currentView = 'dashboard';
+  }
+}
+
+const canEnterDashboard = computed(() => {
+  const uc = activeProject.uiState?.userConfirmed || {};
+  return activeProject.uiState?.progressStage >= 3 && uc.character && uc.scene && uc.item;
+});
+
+function markConfirmed(type) {
+  activeProject.uiState.userConfirmed[type] = true;
+  // If modal is active, go back to upload view (where modal is rendered)
+  if (activeProject.uiState.progressStage > 0 && !canEnterDashboard.value) {
+    activeProject.uiState.currentView = 'upload';
+  } else {
+    activeProject.uiState.currentView = 'dashboard';
+  }
+}
+
+const storyboardInnerTab = ref('storyboard');
 </script>
 
 <template>
@@ -118,15 +151,13 @@ const stepLogs = computed(() => {
       </div>
       
       <div class="header-center">
-        <el-radio-group v-model="currentTab" size="large">
-          <el-radio-button value="upload">上传剧本</el-radio-button>
-          <el-radio-button value="episodes">分集</el-radio-button>
-          <el-radio-button value="roles">角色</el-radio-button>
-          <el-radio-button value="scenes">场景</el-radio-button>
-          <el-radio-button value="items">物品</el-radio-button>
-          <el-radio-button value="storyboard">分镜</el-radio-button>
-          <el-radio-button value="video">视频</el-radio-button>
-        </el-radio-group>
+        <!-- 导航由状态驱动，这里仅显示面包屑或隐藏 -->
+        <span v-if="currentView === 'dashboard'" style="font-weight: bold">项目看板</span>
+        <span v-else-if="currentView === 'upload' && activeProject.uiState.progressStage === 0" style="font-weight: bold">上传剧本</span>
+        <span v-else-if="currentView === 'upload' && activeProject.uiState.progressStage > 0" style="font-weight: bold">流程进度</span>
+        <span v-else-if="isAssetView" style="font-weight: bold">资产确认</span>
+        <span v-else-if="currentView === 'storyboard'" style="font-weight: bold">分镜制作</span>
+        <span v-else-if="currentView === 'video'" style="font-weight: bold">视频合成</span>
       </div>
 
       <div class="header-right">
@@ -139,42 +170,41 @@ const stepLogs = computed(() => {
         >
           停止全流程
         </el-button>
-        <el-button 
-          v-else 
-          type="primary" 
-          size="default" 
-          @click="runFullPipeline"
-          :loading="fullPipelineRunning"
-          class="mr10"
-        >
-          一键全流程
-        </el-button>
-        <el-button :icon="'Setting'" circle @click="goToSettings"></el-button>
       </div>
     </div>
 
     <div class="main-content">
-      <div v-if="currentTab === 'upload'">
-        <TabUpload :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'episodes'">
-        <TabEpisodes :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'roles'">
-        <TabAssets entityType="character" :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'scenes'">
-        <TabAssets entityType="scene" :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'items'">
-        <TabAssets entityType="item" :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'storyboard'">
-        <TabStoryboard :onNext="(tab) => currentTab = tab" />
-      </div>
-      <div v-else-if="currentTab === 'video'">
-        <TabVideo :onNext="(tab) => currentTab = tab" />
-      </div>
+      <template v-if="currentView === 'upload'">
+        <UploadScriptView v-if="activeProject.uiState.progressStage === 0" />
+        <ProjectProgressModal v-else />
+      </template>
+
+      <template v-else-if="currentView === 'dashboard'">
+        <ProjectDashboard />
+      </template>
+
+      <!-- 资产确认页面复用原 TabAssets，额外包裹确认返回条 -->
+      <template v-else-if="isAssetView">
+        <div style="margin-bottom: 15px; display: flex; justify-content: space-between;">
+          <el-button @click="returnToDashboard" icon="ArrowLeft">返回上一级</el-button>
+          <el-button type="success" @click="markConfirmed(currentView)">确定好了，返回</el-button>
+        </div>
+        <TabAssets :entityType="currentView" />
+      </template>
+
+      <template v-else-if="currentView === 'storyboard'">
+        <div style="margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between;">
+          <el-button @click="activeProject.uiState.currentView = 'dashboard'" icon="ArrowLeft">返回看板</el-button>
+        </div>
+        <el-tabs v-model="storyboardInnerTab" type="card" class="inner-tabs">
+          <el-tab-pane label="分镜制作" name="storyboard">
+            <TabStoryboard />
+          </el-tab-pane>
+          <el-tab-pane label="视频合成" name="video">
+            <TabVideo />
+          </el-tab-pane>
+        </el-tabs>
+      </template>
     </div>
     
     <div class="footer">

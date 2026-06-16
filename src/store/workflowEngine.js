@@ -26,8 +26,8 @@ export const vpValidation = ref(null);
 export const sbValidation = ref(null);
 
 // 共享的全局参数设置（跨项目共享，存放在 localStorage 中）
-export const segNarration = reactive({ useModel: true, maxChars: 0 });
-export const segScript = reactive({ useModel: true, maxChars: 0 });
+export const segNarration = reactive({ useModel: true, maxChars: 0, concurrency: 10 });
+export const segScript = reactive({ useModel: true, maxChars: 0, concurrency: 10 });
 export const splitNarration = reactive({ maxUnitChars: 500, concurrency: 10, maxRetries: 2 });
 export const splitScript = reactive({ maxUnitChars: 1000, concurrency: 10, maxRetries: 2 });
 export const shotNarration = reactive({ batchSize: 10, concurrency: 10 });
@@ -161,6 +161,7 @@ export function runSegment(customText = null) {
       text: textToSegment,
       useModel: getSeg().useModel,
       maxChars: Number(getSeg().maxChars) || 0,
+      concurrent: Number(getSeg().concurrency) || 10,
     }, ctrl.signal);
     const elapsed = Date.now() - start;
 
@@ -417,7 +418,7 @@ async function callWithRetry(fn, maxRetries, delayMs, stopKey = null) {
   throw lastErr;
 }
 
-async function runOne2bTask(task, indices, onMeta) {
+async function runOne2bTask(task, indices, onMeta, isFirstBatch) {
   const start = Date.now();
   const processingIndices = getProcessingIndices();
   const episodesForPrompt = processingIndices.length
@@ -490,8 +491,12 @@ async function runOne2bTask(task, indices, onMeta) {
     if (r.meta) onMeta(r.meta);
   
   await enqueueAssetMerge(async () => {
-    const listKey = task.entityType === 'character' ? 'characters' : task.entityType === 'scene' ? 'scenes' : 'items';
-    const oldEntityList = activeProject.assets[listKey] || [];
+    let listKey = '';
+    if (task.entityType === 'character') listKey = 'characters';
+    else if (task.entityType === 'scene') listKey = 'scenes';
+    else listKey = 'items';
+
+    const oldEntityList = activeProject.liveAssets[listKey] || [];
     const oldEntity = oldEntityList.find(e => e.n === task.entityName || e.s === task.entityName);
     const oldKeys = new Set();
     if (oldEntity) {
@@ -501,15 +506,27 @@ async function runOne2bTask(task, indices, onMeta) {
     }
 
     const m = await Pipeline.mergeDetail({
-      existingAssets: activeProject.assets,
+      existingAssets: activeProject.liveAssets,
       entityType: task.entityType,
       entityName: task.entityName,
       parsed: r.parsed,
       episodeIndices: task.episodeIndices || indices,
     }, getController('s2').signal);
-    activeProject.assets = m.merged;
+    activeProject.liveAssets = m.merged;
 
-    const newEntityList = activeProject.assets[listKey] || [];
+    // 【重构：第一批资产基础资料自动同步更新到主库】
+    if (isFirstBatch) {
+      const baseM = await Pipeline.mergeDetail({
+        existingAssets: activeProject.assets,
+        entityType: task.entityType,
+        entityName: task.entityName,
+        parsed: r.parsed,
+        episodeIndices: task.episodeIndices || indices,
+      }, getController('s2').signal);
+      activeProject.assets = baseM.merged;
+    }
+
+    const newEntityList = activeProject.liveAssets[listKey] || [];
     const newEntity = newEntityList.find(e => e.n === task.entityName || e.s === task.entityName);
     if (newEntity) {
       newEntity._status = null;
@@ -631,7 +648,7 @@ export async function runManualDetailExtraction(entityType, entityName, episodeI
   });
 }
 
-async function run2bTaskPool(tasks, indices, onMeta) {
+async function run2bTaskPool(tasks, indices, onMeta, isFirstBatch) {
   let doneTasks = 0;
   let successCount = 0;
   const poolStart = Date.now();
@@ -639,7 +656,7 @@ async function run2bTaskPool(tasks, indices, onMeta) {
   await runPool(tasks, Number(activeProject.s2bConcurrency) || 20, async (task) => {
     if (shouldStop('s2')) return;
     try {
-      await runOne2bTask(task, indices, onMeta);
+      await runOne2bTask(task, indices, onMeta, isFirstBatch);
       successCount++;
     } catch (e) {
       markTaskFailed(task, e);
@@ -798,7 +815,7 @@ function mergeExistingAppearancesToAssets(assets, appearance, defaultIndices = [
 
 export async function produceAssets(options = {}) {
   const s2Start = Date.now();
-  const { resumeOnly = false } = options;
+  const { resumeOnly = false, isFirstBatch = false } = options;
   const N = activeProject.episodes.length;
   if (!N) throw new Error('请先完成分集');
   const indices = options.forceIndices ?? getExtractIndices();
@@ -850,15 +867,15 @@ export async function produceAssets(options = {}) {
       setProg('s2', 0, 1);
       try {
         const s2aStart = Date.now();
-        const hasExistingAssets = (activeProject.assets?.characters?.length || 0) +
-                                  (activeProject.assets?.scenes?.length || 0) +
-                                  (activeProject.assets?.items?.length || 0) > 0;
+        const hasExistingAssets = (activeProject.liveAssets?.characters?.length || 0) +
+                                  (activeProject.liveAssets?.scenes?.length || 0) +
+                                  (activeProject.liveAssets?.items?.length || 0) > 0;
         const promises = [
           callWithRetry(
             () => Pipeline.extractNames({
               currentText: fullText,
               textType: textType.value,
-              existingAssets: activeProject.assets,
+              existingAssets: activeProject.liveAssets,
             }, getController('s2').signal),
             activeProject.s2bRetries,
             activeProject.s2bRetryDelayMs,
@@ -872,7 +889,7 @@ export async function produceAssets(options = {}) {
                 currentText: fullText,
                 previousText: previousText,
                 textType: textType.value,
-                existingAssets: activeProject.assets,
+                existingAssets: activeProject.liveAssets,
               }, getController('s2').signal),
               activeProject.s2bRetries,
               activeProject.s2bRetryDelayMs,
@@ -890,7 +907,13 @@ export async function produceAssets(options = {}) {
         if (namesR.payload) activeProject.payloads.s2.push({ label: `2a·名称提取（第${targetIndices.map((i) => i + 1).join('、')}集）`, text: namesR.payload });
         if (updateCheckR?.payload) activeProject.payloads.s2.push({ label: `2a_b·更新检查（第${targetIndices.map((i) => i + 1).join('、')}集）`, text: updateCheckR.payload });
         lastMeta = namesR.meta;
-        activeProject.assets = namesR.merged || activeProject.assets;
+        activeProject.liveAssets = namesR.merged || activeProject.liveAssets;
+
+        // 【核心重构：第一批 2a 完成后，立即解锁面板并给 assets 垫入底表数据】
+        if (isFirstBatch) {
+          activeProject.assets = JSON.parse(JSON.stringify(activeProject.liveAssets));
+          activeProject.uiState.progressStage = 3;
+        }
 
         // Apply existing appearances immediately
         if (updateCheckR && updateCheckR.parsed) {
@@ -927,7 +950,7 @@ export async function produceAssets(options = {}) {
     }
 
     setProg('s2', 0, tasks.length);
-    const { failed, total, success } = await run2bTaskPool(tasks, indices, (m) => (lastMeta = m));
+    const { failed, total, success } = await run2bTaskPool(tasks, indices, (m) => (lastMeta = m), isFirstBatch);
 
     for (const i of indices) {
       if (failed === 0) {
@@ -956,13 +979,16 @@ export async function produceAssets(options = {}) {
   }
 }
 
-export async function runAssetExtractionDaemon(indicesToProcess, resumeOnly = false) {
+export async function runAssetExtractionDaemon(indicesToProcess, resumeOnly = false, mode = 'all') {
   if (activeProject.isAssetExtractionLoopRunning) return { skipped: true };
   activeProject.isAssetExtractionLoopRunning = true;
   activeProject.pendingAssetExtractionIndices = [...indicesToProcess];
   
   let totalSuccess = 0;
   let totalFailed = 0;
+  // 兼容老项目：如果 progressStage 未能正确推进，但已有集数提取成功，则绝不视为第一批次
+  const hasExtractedEpisodes = activeProject.epState.s2.some(state => state === 'done');
+  let isFirstBatch = !hasExtractedEpisodes && activeProject.uiState.progressStage < 3;
 
   try {
     while (activeProject.pendingAssetExtractionIndices.length > 0) {
@@ -995,9 +1021,19 @@ export async function runAssetExtractionDaemon(indicesToProcess, resumeOnly = fa
 
       // 2. 执行批次
       try {
-        const r = await produceAssets({ resumeOnly, forceIndices: batch });
+        const r = await produceAssets({ resumeOnly, forceIndices: batch, isFirstBatch });
+        isFirstBatch = false;
+        
         activeProject.pendingAssetExtractionIndices = activeProject.pendingAssetExtractionIndices.filter(i => !batch.includes(i));
         
+        // 标记这批已经完成
+        batch.forEach(i => activeProject.epState.s2[i] = 'done');
+
+        // 如果是试试一集，第一批提完立刻收手
+        if (mode === 'one') {
+          activeProject.pendingAssetExtractionIndices = [];
+          break;
+        }
         if (r && !r.skipped) {
           totalSuccess += r.success || 0;
           totalFailed += r.failed || 0;
@@ -1333,8 +1369,8 @@ export function runStoryboard() {
     return; 
   }
   
-  enqueueEpisodePipeline(targetIndices, { runVideo: false });
-  showToast('success', `已将 ${targetIndices.length} 集加入后台并发队列（仅生成分镜）`);
+  enqueueEpisodePipeline(targetIndices, { runVideo: true });
+  showToast('success', `已将 ${targetIndices.length} 集加入后台并发队列（自动生成分镜及提示词）`);
 }
 
 // ---------------- Step 3a: 类型分析 ----------------
@@ -1744,8 +1780,7 @@ async function runEpisodeStep4(i) {
   }
 }
 
-export async function runFullPipeline() {
-  if (fullPipelineRunning.value) return;
+export async function runFullPipeline(mode = 'all') { // mode: 'all' | 'one'
   if (!activeProject.name) {
     showToast('error', '请先选择或创建一个项目');
     return;
@@ -1757,6 +1792,8 @@ export async function runFullPipeline() {
 
   fullPipelineRunning.value = true;
   fullPipelineStop.value = false;
+  activeProject.uiState.progressStage = 1; // Analyzing eps
+  
   try {
     if (activeProject.inputText.trim()) {
       await runSegment();
@@ -1765,12 +1802,14 @@ export async function runFullPipeline() {
 
     const N = activeProject.episodes.length;
     if (!N) { showToast('error', '分集失败，没有获得分集数据'); return; }
+    
+    activeProject.uiState.progressStage = 2; // Eps analyzed
 
     try {
       const pendingIndices = getExtractIndices();
       if (pendingIndices.length > 0) {
-        // 在后台启动守护进程提资产，但不 await 阻塞全流程！
-        runAssetExtractionDaemon(pendingIndices, false).catch(e => {
+        // 后台启动守护进程提资产，传入 mode 控制提取范围
+        runAssetExtractionDaemon(pendingIndices, false, mode).catch(e => {
           console.error('后台资产提取出错', e);
         });
       }
@@ -1794,20 +1833,12 @@ export async function runFullPipeline() {
     if (!activeProject.payloads.s3b) activeProject.payloads.s3b = [];
     if (!activeProject.payloads.s4c) activeProject.payloads.s4c = [];
 
-    // Identify all incomplete episodes that need processing
-    const pendingIndices = [];
-    for (let i = 0; i < N; i++) {
-      if (activeProject.epState.s4c[i] !== 'done') {
-        pendingIndices.push(i);
-      }
-    }
-    
-    if (pendingIndices.length === 0) {
-      showToast('success', `全流程检测完成！${N} 集已全部处理完毕`);
-    } else {
-      // 启动管线守护进程，但不把所有集数硬塞进队列。管线会自动巡检 s2 === 'done' 的集数并加入队列
+    // 无论哪种模式，我们现在只自动执行第1集的分镜
+    if (activeProject.epState.s4c[0] !== 'done') {
       enqueueEpisodePipeline([], { runVideo: true });
-      showToast('success', `全流程已启动，资产接力提取完成后将自动进入分镜队列`);
+      showToast('success', mode === 'all' ? `全部分析已启动，资产接力提取中，将为您自动生成第1集视频` : `试试一集已启动，将为您提取前10集资产并生成第1集视频`);
+    } else {
+      showToast('success', `全流程检测完成！第1集已处理完毕`);
     }
 
   } catch (e) {
@@ -1837,11 +1868,10 @@ async function processEpisodePipelineDaemon() {
 
     // 全流程模式下，动态巡检：只要有集数提取完了资产（s2 === 'done'），就将其投入分镜管线
     if (fullPipelineRunning.value) {
-      for (let i = 0; i < activeProject.episodes.length; i++) {
-        if (activeProject.epState.s2[i] === 'done' && activeProject.epState.s4c[i] !== 'done') {
-          if (!episodePipelineQueue.value.find(q => q.idx === i) && !activeEpisodeTasks.has(i)) {
-            episodePipelineQueue.value.push({ idx: i, runVideo: true });
-          }
+      // 按照需求，不论是“试试一集”还是“全部分析”，我们只自动执行第一集(idx: 0)的分镜
+      if (activeProject.epState.s2[0] === 'done' && activeProject.epState.s4c[0] !== 'done') {
+        if (!episodePipelineQueue.value.find(q => q.idx === 0) && !activeEpisodeTasks.has(0)) {
+          episodePipelineQueue.value.push({ idx: 0, runVideo: true });
         }
       }
     }
@@ -1974,8 +2004,8 @@ loadGlobalSettings();
 
 watch(
   () => [
-    segNarration.useModel, segNarration.maxChars,
-    segScript.useModel, segScript.maxChars,
+    segNarration.useModel, segNarration.maxChars, segNarration.concurrency,
+    segScript.useModel, segScript.maxChars, segScript.concurrency,
     splitNarration.maxUnitChars, splitNarration.concurrency, splitNarration.maxRetries,
     splitScript.maxUnitChars, splitScript.concurrency, splitScript.maxRetries,
     shotNarration.batchSize, shotNarration.concurrency,

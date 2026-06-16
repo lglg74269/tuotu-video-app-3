@@ -19,6 +19,7 @@ export const activeProject = reactive({
   episodeStoryboard: [], // 每集原始分镜
   groupedStoryboardPerEpisode: [], // 每集归并分镜
   assets: { characters: [], scenes: [], items: [], narrator: '', meta_info: null },
+  liveAssets: { characters: [], scenes: [], items: [], narrator: '', meta_info: null }, // 双轨后台实时池
   analysis: null,
   
   // 原始分镜与归并分镜
@@ -62,6 +63,13 @@ export const activeProject = reactive({
   isAssetExtractionLoopRunning: false,
   pendingAssetExtractionIndices: [],
 
+  // UI流转状态
+  uiState: {
+    currentView: 'upload', // 'upload' | 'dashboard' | 'character' | 'scene' | 'item'
+    progressStage: 0,      // 0 (none), 1 (analyzing eps), 2 (analyzed eps), 3 (10-assets done), 4 (all done)
+    userConfirmed: { character: false, scene: false, item: false }
+  },
+
   // 选择标记
   extractSelected: [],
   s4xSelected: [],
@@ -85,6 +93,7 @@ export function resetActiveProject() {
   activeProject.episodeStoryboard = [];
   activeProject.groupedStoryboardPerEpisode = [];
   activeProject.assets = { characters: [], scenes: [], items: [], narrator: '', meta_info: null };
+  activeProject.liveAssets = { characters: [], scenes: [], items: [], narrator: '', meta_info: null };
   activeProject.analysis = null;
   activeProject.storyboard = { storys: [] };
   activeProject.groupedStoryboard = { storys: [] };
@@ -95,6 +104,14 @@ export function resetActiveProject() {
   activeProject.s2FailedTasks = [];
   activeProject.episodeStatus = {};
   activeProject.epState = { s2: [], ready: [], sb: [], sbSplit: [], sbShots: [], s4x: [], s4a: [], s4c: [] };
+  
+  activeProject.isAssetExtractionLoopRunning = false;
+  activeProject.pendingAssetExtractionIndices = [];
+  activeProject.uiState = {
+    currentView: 'upload',
+    progressStage: 0,
+    userConfirmed: { character: false, scene: false, item: false }
+  };
 
   // 配置重置
   activeProject.s2bConcurrency = 20;

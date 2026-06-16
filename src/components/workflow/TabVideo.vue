@@ -84,6 +84,15 @@ function getIssueType(level) {
   if (level === 'warning') return 'warning';
   return 'info';
 }
+
+function toggleSelection(arr, idx, val) {
+  if (val) {
+    if (!arr.includes(idx)) arr.push(idx);
+  } else {
+    const pos = arr.indexOf(idx);
+    if (pos > -1) arr.splice(pos, 1);
+  }
+}
 </script>
 
 <template>
@@ -180,8 +189,18 @@ function getIssueType(level) {
           <div class="ep-body">
             <span class="status-steps">{{ s4DotText(idx) }}</span>
             <div class="select-actions mt8">
-              <el-checkbox v-model="activeProject.s4aSelected" :label="idx" size="small">重分类</el-checkbox>
-              <el-checkbox v-model="activeProject.s4cSelected" :label="idx" size="small">重生成</el-checkbox>
+              <el-checkbox 
+                :model-value="activeProject.s4aSelected.includes(idx)" 
+                @change="val => toggleSelection(activeProject.s4aSelected, idx, val)" 
+                size="small">
+                重分类
+              </el-checkbox>
+              <el-checkbox 
+                :model-value="activeProject.s4cSelected.includes(idx)" 
+                @change="val => toggleSelection(activeProject.s4cSelected, idx, val)" 
+                size="small">
+                重生成
+              </el-checkbox>
             </div>
           </div>
         </div>

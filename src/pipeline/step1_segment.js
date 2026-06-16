@@ -199,7 +199,7 @@ async function runPool(items, limit, worker) {
  * 主入口：对长文本进行模型分集
  * @param {{text:string, maxChars?:number, concurrent?:number}} args
  */
-export async function segmentNovel({ text, maxChars, concurrent = 8 }) {
+export async function segmentNovel({ text, maxChars, concurrent = 10 }) {
   const clean = preprocessText(text);
   if (clean.length < 50) return { episodes: [{ id: 1, title: '全文', text: clean }], markers: [], rawBatches: [] };
 

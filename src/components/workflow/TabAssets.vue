@@ -31,15 +31,66 @@ const reAnalyzeDialogVisible = ref(false);
 const selectedEpisodesForReAnalysis = ref([]);
 
 // 根据类型计算当前展示的数据
+const listKey = computed(() => props.entityType === 'character' ? 'characters' : props.entityType === 'scene' ? 'scenes' : 'items');
+
 const list = computed(() => {
-  if (props.entityType === 'character') {
-    return activeProject.assets?.characters || [];
-  } else if (props.entityType === 'scene') {
-    return activeProject.assets?.scenes || [];
-  } else {
-    return activeProject.assets?.items || [];
-  }
+  return activeProject.assets[listKey.value] || [];
 });
+
+const mergeDiff = computed(() => {
+  const baseList = activeProject.assets[listKey.value] || [];
+  const liveList = activeProject.liveAssets[listKey.value] || [];
+  
+  let newEntities = 0;
+  let newLooks = 0;
+  
+  for (const liveE of liveList) {
+    const nameKey = props.entityType === 'scene' ? 's' : 'n';
+    const baseE = baseList.find(e => e[nameKey] === liveE[nameKey]);
+    if (!baseE) {
+      newEntities++;
+    } else {
+      const subKey = props.entityType === 'character' ? 'looks' : props.entityType === 'scene' ? 'states' : 'variants';
+      const subNameKey = props.entityType === 'character' ? 'ln' : props.entityType === 'scene' ? 'sn' : 'vn';
+      const baseSubs = baseE[subKey] || [];
+      const liveSubs = liveE[subKey] || [];
+      for (const liveS of liveSubs) {
+        if (!baseSubs.find(s => s[subNameKey] === liveS[subNameKey])) {
+          newLooks++;
+        }
+      }
+    }
+  }
+  return { newEntities, newLooks };
+});
+
+function mergeLiveToAssets() {
+  const baseList = activeProject.assets[listKey.value] || [];
+  const liveList = activeProject.liveAssets[listKey.value] || [];
+  
+  for (const liveE of liveList) {
+    const nameKey = props.entityType === 'scene' ? 's' : 'n';
+    const baseE = baseList.find(e => e[nameKey] === liveE[nameKey]);
+    if (!baseE) {
+      baseList.push(JSON.parse(JSON.stringify(liveE)));
+    } else {
+      const subKey = props.entityType === 'character' ? 'looks' : props.entityType === 'scene' ? 'states' : 'variants';
+      const subNameKey = props.entityType === 'character' ? 'ln' : props.entityType === 'scene' ? 'sn' : 'vn';
+      const baseSubs = baseE[subKey] || [];
+      const liveSubs = liveE[subKey] || [];
+      
+      for (const liveS of liveSubs) {
+        if (!baseSubs.find(s => s[subNameKey] === liveS[subNameKey])) {
+          baseSubs.push(JSON.parse(JSON.stringify(liveS)));
+        }
+      }
+      baseE[subKey] = baseSubs;
+    }
+  }
+  activeProject.assets[listKey.value] = baseList;
+  autoSave();
+  ElMessage.success('合并完成');
+}
 
 const typeLabel = computed(() => {
   if (props.entityType === 'character') return '角色';
@@ -342,15 +393,35 @@ async function doReAnalyze(overwrite) {
           </el-card>
         </template>
       </div>
-      
-      <div v-if="activeProject.isAssetExtractionLoopRunning && activeProject.pendingAssetExtractionIndices?.length > 0" class="asset-extraction-pending-hint" style="margin-top: 20px;">
-        <el-alert 
-          title="更多后续剧集资产正在排队接力提取中，您现在就可以放心制作已完成的分镜剧集..." 
-          type="info" 
-          show-icon 
-          :closable="false"
-        />
-      </div>
+        <!-- 新增：双轨资产合并提示卡 -->
+        <el-card 
+          v-if="activeProject.isAssetExtractionLoopRunning || mergeDiff.newEntities > 0 || mergeDiff.newLooks > 0"
+          class="asset-card"
+          shadow="hover"
+          style="border-style: dashed; border-color: var(--warning); display: flex; flex-direction: column; justify-content: center; align-items: center;"
+        >
+          <div class="card-body" style="text-align: center; width: 100%;">
+            <div style="font-weight: bold; color: var(--warning); margin-bottom: 10px; font-size: 16px;">
+              更多资产提取中...
+            </div>
+            <p v-if="mergeDiff.newEntities > 0 || mergeDiff.newLooks > 0" style="margin-bottom: 15px; color: var(--success); line-height: 1.5; font-size: 14px;">
+              已有{{ typeLabel }}有 {{ mergeDiff.newLooks }} 个新状态/造型<br/>
+              以分析添加 {{ mergeDiff.newEntities }} 个新{{ typeLabel }}
+            </p>
+            <p v-else style="margin-bottom: 15px; color: var(--text-2); font-size: 14px;">
+              暂无新资产更新
+            </p>
+            <el-button 
+              type="primary" 
+              size="default" 
+              @click="mergeLiveToAssets" 
+              :disabled="mergeDiff.newEntities === 0 && mergeDiff.newLooks === 0"
+            >
+              合并到资产看板上
+            </el-button>
+          </div>
+        </el-card>
+
     </div>
 
     <el-dialog
