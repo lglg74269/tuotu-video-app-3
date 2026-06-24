@@ -135,7 +135,7 @@ function isRunning(idx) {
 function isAssetRunning(idx) {
   const st = activeProject.epState;
   if (!st) return false;
-  return st.s2?.[idx] === 'running' || activeProject.pendingAssetExtractionIndices?.includes(idx);
+  return st.s2?.[idx] === 'running';
 }
 
 const assetUpdateDialogVisible = ref(false);
